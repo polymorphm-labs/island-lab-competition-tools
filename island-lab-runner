@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+
+import argparse
+import subprocess
+import time
+
+def build_seq_str(seq):
+    return ','.join(str(el) for el in seq)
+
+def parse_seq(seq_str):
+    if not seq_str:
+        return ()
+    
+    return tuple(int(el.strip()) for el in seq_str.split(','))
+
+def run_resolver(prog, perimeter):
+    input_bytes = build_seq_str(perimeter).encode()
+    
+    start_time = time.monotonic()
+    
+    with subprocess.Popen([prog], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL) as proc:
+        stdout_data, stderr_data = proc.communicate(input=input_bytes)
+        
+        stop_time = time.monotonic()
+        duration = round((stop_time - start_time) * 1000)
+        
+        if proc.returncode:
+            return False, None, duration
+    
+    lines = stdout_data.decode().split('\n')
+    solutions = []
+    
+    for line in lines:
+        line = line.strip()
+        
+        if not line:
+            continue
+        
+        solutions.append(parse_seq(line))
+    
+    return True, solutions, duration
+
+def do_task(prog, perimeter, exp_solution):
+    success, solutions, duration = run_resolver(prog, perimeter)
+    
+    if not success:
+        return 'fail/error', duration
+    
+    if not solutions:
+        return 'fail/solution_not_found', duration
+    
+    if len(solutions) > 1:
+        return 'fail/many_solutions', duration
+    
+    if exp_solution != solutions[0]:
+        return 'fail/unexpected_solution', duration
+    
+    return 'pass', duration
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='a puzzle resolver runner',
+    )
+    
+    parser.add_argument(
+        'island_lab_resolver',
+        help='path to island-lab-resolver program',
+    )
+    
+    parser.add_argument(
+        'input_tasks',
+        help='path to the input tasks file',
+    )
+    
+    parser.add_argument(
+        'output_full_log',
+        help='path to the output full log file',
+    )
+    
+    parser.add_argument(
+        'output_problem_log',
+        help='path to the output problem only log file',
+    )
+    
+    args = parser.parse_args()
+    
+    with open(args.input_tasks, encoding='utf-8') as tasks_fd, \
+            open(args.output_full_log, 'w', encoding='utf-8', newline='\n') as \
+            full_log, \
+            open(args.output_problem_log, 'w', encoding='utf-8', newline='\n') as \
+            problem_log:
+        for task_line in tasks_fd:
+            task_line = task_line.strip()
+            
+            if not task_line:
+                continue
+            
+            perimeter_str, exp_solution_str = task_line.split()
+            perimeter = parse_seq(perimeter_str)
+            exp_solution = parse_seq(exp_solution_str)
+            
+            result, duration = do_task(args.island_lab_resolver, perimeter, exp_solution)
+            
+            log_fds = [full_log]
+            
+            if result != 'pass':
+                log_fds.append(problem_log)
+            
+            print(result, duration)
+            
+            for log_fd in log_fds:
+                log_fd.write('{}: {} millis: {} {}\n'.format(
+                    result,
+                    duration,
+                    build_seq_str(perimeter),
+                    build_seq_str(exp_solution),
+                ))
+                log_fd.flush()
+
+if __name__ == '__main__':
+    main()
+
+# vi:filetype=python:ts=4:sw=4:et

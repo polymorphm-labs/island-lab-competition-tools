@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+
+import collections
+import sys
+import argparse
+import shlex
+import struct
+import os, os.path
+import subprocess
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='a puzzle generator',
+    )
+    
+    parser.add_argument(
+        'island_lab_resolver',
+        help='path to island-lab-resolver program',
+    )
+    
+    parser.add_argument(
+        'general_size',
+        type=int,
+        help='general-size value',
+    )
+    
+    parser.add_argument(
+        'batch_count',
+        type=int,
+        help='count of batches',
+    )
+    
+    parser.add_argument(
+        'batch_size',
+        type=int,
+        help='count of puzzles a batches',
+    )
+    
+    parser.add_argument(
+        'output_tasks',
+        help='path to the output generated tasks file',
+    )
+    
+    args = parser.parse_args()
+    
+    print(args)
+
+if __name__ == '__main__':
+    main()
+
+# vi:filetype=python:ts=4:sw=4:et
