@@ -1,12 +1,121 @@
 #!/usr/bin/env python3
 
-import collections
-import sys
 import argparse
-import shlex
-import struct
-import os, os.path
 import subprocess
+import random
+
+def build_seq_str(seq):
+    return ','.join(str(el) for el in seq)
+
+def parse_seq(seq_str):
+    if not seq_str:
+        return ()
+    
+    return [int(el.strip()) for el in seq_str.split(',')]
+
+def run_resolver(prog, single, perimeter):
+    cmd = [prog]
+    
+    if single:
+        cmd.append('-1')
+    
+    input_bytes = build_seq_str(perimeter).encode()
+    
+    with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL) as proc:
+        stdout_data, stderr_data = proc.communicate(input=input_bytes)
+        
+        if proc.returncode:
+            return False, None
+    
+    lines = stdout_data.decode().split('\n')
+    solutions = []
+    
+    for line in lines:
+        line = line.strip()
+        
+        if not line:
+            continue
+        
+        solutions.append(parse_seq(line))
+    
+    return True, solutions
+
+def makeup_perimeter(general_size, perimeter_hints):
+    perimeter_size = general_size * 4
+    perimeter = [0] * perimeter_size
+    
+    for idx in range(perimeter_hints):
+        perimeter[idx % perimeter_size] = random.randrange(1, general_size + 1)
+    
+    random.shuffle(perimeter)
+    
+    return perimeter
+
+def recover_perimeter(general_size, buildings):
+    def look_at_buildings(building_idx_func, cns):
+        count = 0
+        highest = 0
+        
+        for var in range(general_size):
+            building = buildings[building_idx_func(cns, var)]
+            
+            if building > highest:
+                count += 1
+                highest = building
+        
+        return count
+    
+    building_idx = lambda j, i: general_size * j + i
+    hori_building_idx = lambda cns, var: building_idx(cns, var)
+    vert_building_idx = lambda cns, var: building_idx(var, cns)
+    rev_hori_building_idx = lambda cns, var: building_idx(
+            cns, general_size - var - 1)
+    rev_vert_building_idx = lambda cns, var: building_idx(
+            general_size - var - 1, cns)
+    north_obs_idx = lambda i: i
+    east_obs_idx = lambda j: general_size + j
+    south_obs_idx = lambda i: general_size * 3 - 1 - i
+    west_obs_idx = lambda j: general_size * 4 - 1 - j
+    
+    perimeter_size = general_size * 4
+    perimeter = [0] * perimeter_size
+    
+    for var in range(general_size):
+        perimeter[north_obs_idx(var)] = \
+                look_at_buildings(vert_building_idx, var)
+    for var in range(general_size):
+        perimeter[east_obs_idx(var)] = \
+                look_at_buildings(rev_hori_building_idx, var)
+    for var in range(general_size):
+        perimeter[south_obs_idx(var)] = \
+                look_at_buildings(rev_vert_building_idx, var)
+    for var in range(general_size):
+        perimeter[west_obs_idx(var)] = \
+                look_at_buildings(hori_building_idx, var)
+    
+    return perimeter
+
+def check_recovered_perimeter(general_size,
+        madeup_perimeter, recovered_perimeter):
+    perimeter_size = general_size * 4
+    
+    for idx in range(perimeter_size):
+        assert not madeup_perimeter[idx] or \
+                recovered_perimeter[idx] == madeup_perimeter[idx]
+
+def randomly_reduce_perimeter(general_size, perimeter):
+    perimeter_size = general_size * 4
+    
+    idxs = [idx for idx in range(perimeter_size) if perimeter[idx]]
+    
+    assert idxs
+    
+    idx = random.choice(idxs)
+    
+    assert perimeter[idx]
+    
+    perimeter[idx] = 0
 
 def main():
     parser = argparse.ArgumentParser(
@@ -22,6 +131,19 @@ def main():
         'general_size',
         type=int,
         help='general-size value',
+    )
+    
+    parser.add_argument(
+        'perimeter_hints',
+        type=int,
+        help='how many already put perimeter values to make up '
+                'before puzzle\'s batch generation started',
+    )
+    
+    parser.add_argument(
+        'require_unknowns',
+        type=int,
+        help='how many unknown elements must be in perimeter at least',
     )
     
     parser.add_argument(
@@ -43,7 +165,90 @@ def main():
     
     args = parser.parse_args()
     
-    print(args)
+    with open(args.output_tasks, 'w', encoding='utf-8', newline='\n') as \
+            tasks_fd:
+        for batch_i in range(args.batch_count):
+            madeup_perimeter = makeup_perimeter(args.general_size, args.perimeter_hints)
+            
+            print('new perimeter has been made up:\n\t{}'.format(
+                    build_seq_str(madeup_perimeter)))
+            
+            success, solutions = run_resolver(
+                    args.island_lab_resolver, True, madeup_perimeter)
+            
+            if not success:
+                print('error when resolving made up perimeter!')
+                continue
+            
+            if not solutions:
+                print('unable to find solutions for made up perimeter!')
+                continue
+            
+            assert len(solutions) == 1
+            
+            buildings = solutions[0]
+            
+            recovered_perimeter = recover_perimeter(args.general_size, buildings)
+            
+            check_recovered_perimeter(args.general_size,
+                    madeup_perimeter, recovered_perimeter)
+            
+            print('new batch has been successfully started based on:\n\t{}\n\t{}'.format(
+                    build_seq_str(recovered_perimeter),
+                    build_seq_str(buildings)))
+            
+            success, solutions = run_resolver(
+                    args.island_lab_resolver, False, recovered_perimeter)
+            
+            assert not success or solutions
+            
+            if not success:
+                print('error when resolving batch based perimeter!')
+                continue
+            
+            if len(solutions) > 1:
+                print('too many solutions for batch based perimeter!')
+                continue
+            
+            for in_batch_i in range(args.batch_size):
+                candidate = recovered_perimeter
+                chosen_candidate = candidate
+                unknowns = 0
+                
+                print('in batch: candidates:')
+                
+                while True:
+                    candidate = candidate.copy()
+                    randomly_reduce_perimeter(args.general_size, candidate)
+                    
+                    print('\t{}'.format(build_seq_str(candidate)))
+                    
+                    success, solutions = run_resolver(
+                            args.island_lab_resolver, False, candidate)
+                    
+                    assert not success or solutions
+                    
+                    if not success or len(solutions) > 1:
+                        break
+                    
+                    chosen_candidate = candidate
+                    unknowns += 1
+                
+                if not success:
+                    print('in batch: stopping finding task perimeter due to error!')
+                    continue
+                
+                if unknowns < args.require_unknowns:
+                    print('in batch: skipping choosing task perimeter due too few unknowns: {}'.format(
+                            unknowns))
+                    continue
+                
+                print('in batch: task perimeter has been successfully chosen:\n\t{}'.format(
+                        build_seq_str(chosen_candidate)))
+                
+                tasks_fd.write('{} {}\n'.format(
+                        build_seq_str(chosen_candidate), build_seq_str(buildings)))
+                tasks_fd.flush()
 
 if __name__ == '__main__':
     main()
