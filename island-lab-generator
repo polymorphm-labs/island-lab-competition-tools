@@ -239,7 +239,7 @@ def main():
                     continue
                 
                 if unknowns < args.require_unknowns:
-                    print('in batch: skipping choosing task perimeter due too few unknowns: {}'.format(
+                    print('in batch: skipping choosing task perimeter due to too few unknowns: {}'.format(
                             unknowns))
                     continue
                 
